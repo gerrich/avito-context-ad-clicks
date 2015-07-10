@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-
+import re
 import sys
 import csv
 import datetime
@@ -32,7 +32,12 @@ def tjoin(data):
 
 def parse_date(string_date):
   return datetime.datetime.strptime(string_date, "%Y-%m-%d %H:%M:%S.%f")
-  
+ 
+def get_locations():
+  rows = c.execute("select * from Location") 
+  return {row["LocationID"]:row for row in rows}
+location_dict = get_locations()
+location_dict[''] = {"LocationID":0, "Level":"0", "RegionID":-1, "CityID":-1}
 
 # extract data from db for batch of events
 def get_data_batch(chunk):
@@ -56,13 +61,36 @@ def get_data_batch(chunk):
     
     #print item
     date = parse_date(item["Search"]["SearchDate"])
+    
+    price = 0
+    bad_price = 0
+    fifty_price = (0,1)[item['Ad']['Price'][-2:]==".5"]
+    m = re.match('\d(0*)(\.5)?$', item['Ad']['Price'])
+    if m:
+      zeros_price = len(m.group(1))
+    else:
+      zeros_price = 0 
+    
+    try:
+      price = float(item['Ad']['Price'])
+    except:
+      bad_price = 1
+
+    sloc = location_dict[item["Search"]["LocationID"]]
+    aloc = location_dict[item["Ad"]["LocationID"]]    
+ 
     print tjoin([
       len(item["Search"]["SearchQuery"]),
       "01"[item["Search"]["CategoryID"] == item["Ad"]["CategoryID"]],
-      "01"[item["Search"]["LocationID"] == item["Ad"]["LocationID"]],
+      sloc["Level"],
+      aloc["Level"],
+      "01"[sloc["Level"] == aloc["Level"]],
+      "01"[sloc["LocationID"] == aloc["LocationID"]],
+      "01"[sloc["RegionID"] == aloc["RegionID"]],
+      "01"[sloc["CityID"] == aloc["CityID"]],
       date.weekday(),
       date.hour,
-      float(item['Ad']['Price']),
+      price, bad_price, fifty_price, zeros_price,
       item['Position'],
       item['ObjectType'],
       item["HistCTR"],
@@ -74,7 +102,7 @@ def get_data_batch(chunk):
 train_data = open("trainSearchStream.tsv", 'r', )
 reader = csv.reader(train_data, delimiter='\t', quotechar='"')
 chunk = []
-chunk_size = 100
+chunk_size = 1000
 header = reader.next()
 for row in reader:
   # get 1000 rows
